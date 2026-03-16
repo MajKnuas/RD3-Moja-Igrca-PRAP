@@ -3,6 +3,7 @@
 class Entity {
     protected:
     float x, y, HP;
+    float speed = 200; 
 
     public:
     Entity();
@@ -13,11 +14,13 @@ class Entity {
 };
 
 class Player:public Entity{
+    float angle = 0;
     public:
     Player();
     Player(float x, float y);
-    void moveUp();
-    void moveDown();
-    void moveLeft();
-    void moveRight();
+    void moveUp(float dt);
+    void moveDown(float dt);
+    void moveLeft(float dt);
+    void moveRight(float dt);
+    float getAngle();
 };

@@ -17,16 +17,31 @@ Player::Player(float startX, float startY) {
     HP = 100;
 }
 
-void Player::moveUp() { y -= 20; }
+void Player::moveUp(float dt) {
+    y -= speed * dt;
+    angle = 180;
+}
 
-void Player::moveDown() { y += 20; }
+void Player::moveDown(float dt) {
+    y += speed * dt;
+    angle = 0;
+}
 
-void Player::moveLeft() { x -= 20; }
+void Player::moveLeft(float dt) {
+    x -= speed * dt;
+    angle = 90;
+}
 
-void Player::moveRight() { x += 20; }
+void Player::moveRight(float dt){
+    x += speed * dt;
+    angle = 270;
+}
+
 
 float Entity::getX()  { return x; } 
 
 float Entity::getY() { return y; }
 
 float Entity::getHP() { return HP;}
+
+float Player::getAngle() {return angle;}
