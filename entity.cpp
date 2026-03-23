@@ -45,3 +45,21 @@ float Entity::getY() { return y; }
 float Entity::getHP() { return HP;}
 
 float Player::getAngle() {return angle;}
+
+void Player::clampToMap() {
+    // Clamp x position (left and right boundaries)
+    if (x < 0) {
+        x = 0;
+    }
+    if (x + PLAYER_SIZE > MAP_WIDTH) {
+        x = MAP_WIDTH - PLAYER_SIZE;
+    }
+    
+    // Clamp y position (top and bottom boundaries)
+    if (y < 0) {
+        y = 0;
+    }
+    if (y + PLAYER_SIZE > MAP_HEIGHT) {
+        y = MAP_HEIGHT - PLAYER_SIZE;
+    }
+}

@@ -1,5 +1,10 @@
 // V header filih so protoipi funkcij
 
+// Map constants
+const float MAP_WIDTH = 2560;
+const float MAP_HEIGHT = 1440;
+const float PLAYER_SIZE = 50;
+
 class Entity {
     protected:
     float x, y, HP;
@@ -23,4 +28,5 @@ class Player:public Entity{
     void moveLeft(float dt);
     void moveRight(float dt);
     float getAngle();
+    void clampToMap();
 };

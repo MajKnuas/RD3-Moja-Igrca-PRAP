@@ -3,6 +3,7 @@
 #include <SDL3/SDL.h>
 #include <SDL3_image/SDL_image.h> // Libari za slike ki sem ga posebi rabil installirat in dodat
 #include "entity.h"
+#include "main_menu.h"
 
 using namespace std;
 
@@ -29,19 +30,16 @@ SDL_Texture *getShipTexture(float hp, const SDL_State &state) {
 
 void cleanup(struct SDL_State &state); // protoip funkcije cleanup
 
-//Lastnosti mape 
-const int MAP_WIDTH_TILES = 40;
-const int MAP_HEIGHT_TILES = 20;
-const int TILE_SIZE = 32;
-
 
 
 int main(){
 
     struct SDL_State state;
 
-    int width = 1400;
-    int height = 800;
+    // Window size (camera viewport)
+    int width = 1920;
+    int height = 1080;
+    
     state.window = SDL_CreateWindow("Main game", width, height, SDL_WINDOW_RESIZABLE);
 
     // Create rendere
@@ -53,9 +51,13 @@ int main(){
     state.shipTextureLowHP = IMG_LoadTexture(state.renderer, "textures/MeShipLowHP.png");
     state.sandTexture = IMG_LoadTexture(state.renderer, "textures/Minecraft-Sand-Block.jpg");
 
+    MainMenu mainMenu;
+    mainMenu.load(state.renderer, "textures/MainMenuTexture.png");
+    bool inMainMenu = true;
 
-    // Create player in center
-    Player player(width/2, height/2); // Center for 50x50 square
+
+    // Create player in center of map
+    Player player(MAP_WIDTH / 2 , MAP_HEIGHT / 2);
     
     // Tabela ki preverja če je gumb pritisnjen ali ne + racunanje delta time (cas med 1. framom in 2. framom MOVEMENT OSTANE ENAK HITER NE GLEDENA FPS)
     const bool *keys = SDL_GetKeyboardState(NULL);
@@ -69,7 +71,33 @@ int main(){
             if(event.type == SDL_EVENT_QUIT){
                 running=false;
                 break; // Ni potrebe vendar za vsak slučaj če bi se še kaj izvajalo da takoj gremo ven iz loopa
-            } 
+            }
+
+            if (event.type == SDL_EVENT_WINDOW_RESIZED) {
+                width = event.window.data1;
+                height = event.window.data2;
+            }
+
+            if (event.type == SDL_EVENT_KEY_DOWN && event.key.scancode == SDL_SCANCODE_F11 && !event.key.repeat){
+                // Ko kliknemo f11 da nam da full screen al pa windowed z okvirji 
+                Uint32 windowFlags = SDL_GetWindowFlags(state.window);
+                if (windowFlags &SDL_WINDOW_MAXIMIZED) {
+                    SDL_RestoreWindow(state.window);
+                } else {
+                    SDL_SetWindowBordered(state.window, true);
+                    SDL_MaximizeWindow(state.window);
+                }
+            }
+
+            if (inMainMenu) {
+                if (event.type == SDL_EVENT_KEY_DOWN && !event.key.repeat && event.key.scancode != SDL_SCANCODE_F11) {
+                    inMainMenu = false;
+                }
+
+                if (event.type == SDL_EVENT_MOUSE_BUTTON_DOWN) {
+                    inMainMenu = false;
+                }
+            }
         }
         // Koda da zracuna delta time (cas med 1. framom in 2. framom)
         auto currentTime = std::chrono::high_resolution_clock::now(); //auto naredi da nam compiler sam določi podatkovni tip ki ga rabi v tem primeru ni noben katerga smo se mi učili
@@ -81,13 +109,52 @@ int main(){
         if(keys[SDL_SCANCODE_S])player.moveDown(dt);
         if(keys[SDL_SCANCODE_A])player.moveLeft(dt);
         if(keys[SDL_SCANCODE_D])player.moveRight(dt);
+
+        if (inMainMenu) {
+            SDL_SetRenderDrawColor(state.renderer, 0, 0, 0, 255);
+            SDL_RenderClear(state.renderer);
+            mainMenu.render(state.renderer, width, height);
+            SDL_RenderPresent(state.renderer);
+            continue;
+        }
+
+        // Keep player within map boundaries
+        player.clampToMap();
+        
+        // Calculate camera offset to center player on screen
+        float cameraX = player.getX() - width / 2.0f;
+        float cameraY = player.getY() - height / 2.0f;
+        
+        // Clamp camera to map boundaries
+        if (cameraX < 0)
+            cameraX = 0;
+
+        if (cameraX + width > MAP_WIDTH)
+            cameraX = MAP_WIDTH - width;
+
+        if (cameraY < 0) 
+            cameraY = 0;
+
+        if (cameraY + height > MAP_HEIGHT) 
+            cameraY = MAP_HEIGHT - height;
       
 
         // risanje renderjev v pomnilnik
         SDL_SetRenderDrawColor(state.renderer, 0, 153, 255, 255);
         SDL_RenderClear(state.renderer); // ciscenje screena
 
-        SDL_FRect rect = {player.getX(), player.getY(), 50, 50}; // {x, y, width, height}
+        // Risanje peska (obale)
+        float rectWidth = MAP_WIDTH / 3;
+        float rectX = MAP_WIDTH - rectWidth;
+        float rectY = 0;
+        
+        SDL_FRect pesek = {rectX - cameraX, rectY - cameraY, rectWidth, MAP_HEIGHT};
+
+        // Risanje texutre obale -pesek
+        SDL_RenderTexture(state.renderer,state.sandTexture, NULL, &pesek);
+
+        // Draw player relative to camera position
+        SDL_FRect rect = {player.getX() - cameraX, player.getY() - cameraY, 50, 50}; // {x, y, width, height}
         SDL_FPoint center = { rect.w / 2, rect.h / 2 };  // center of rectangle so it can be rotated around
 
         // Draw the player (ship texture + rotation while moving)
@@ -99,45 +166,18 @@ int main(){
 
         
     }
+    mainMenu.cleanup();
     cleanup(state);
     return 0;
 }
-void createTile(const struct SDLState &state ){
 
-    /*
-    1 - PESEK
-    2 - NASA LADJA
-    3 - 
-    */
-    int map[MAP_WIDTH_TILES][MAP_HEIGHT_TILES] = {
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-    };
-}
 
 // Funkcija da zbriše vse stvari iz pomnilnika da ne pride do overlflowa in nam uniči kodo
 void cleanup(struct SDL_State &state){
     SDL_DestroyTexture(state.shipTextureFullHP);
     SDL_DestroyTexture(state.shipTextureHalfHP);
     SDL_DestroyTexture(state.shipTextureLowHP);
+    SDL_DestroyTexture(state.sandTexture);
     SDL_DestroyRenderer(state.renderer);
     SDL_DestroyWindow(state.window);
     SDL_Quit();
