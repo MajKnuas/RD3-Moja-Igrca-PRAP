@@ -30,3 +30,9 @@ class Player:public Entity{
     float getAngle();
     void clampToMap();
 };
+
+class Enemy:public Entity{
+    public:
+    Enemy();
+    Enemy(float x, float y);
+};

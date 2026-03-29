@@ -7,6 +7,12 @@
 
 using namespace std;
 
+enum class AppScreen { // enum naredi da je lahko samo 1 od teh vrednosti naenkrat 
+    MainMenu,
+    Settings,
+    Game
+};
+
 struct SDL_State{
     SDL_Window *window;
     SDL_Renderer *renderer;
@@ -14,7 +20,13 @@ struct SDL_State{
     SDL_Texture *shipTextureFullHP;
     SDL_Texture *shipTextureHalfHP;
     SDL_Texture *shipTextureLowHP;
+
     SDL_Texture *sandTexture;
+
+    SDL_Texture *EnemyshipTexture;
+    SDL_Texture *EnemyshipTextureFullHP;
+    SDL_Texture *EnemyshipTextureHalfHP;
+    SDL_Texture *EnemyshipTextureLowHP;
 };
 
 SDL_Texture *getShipTexture(float hp, const SDL_State &state) {
@@ -26,6 +38,17 @@ SDL_Texture *getShipTexture(float hp, const SDL_State &state) {
 
     else 
     return state.shipTextureLowHP;
+}
+
+SDL_Texture *getEnemyShipTexture(float hp, const SDL_State &state) {
+    if (hp > 50)
+    return state.EnemyshipTextureFullHP;
+
+    else if (hp > 20)
+    return state.EnemyshipTextureHalfHP;
+
+    else 
+    return state.EnemyshipTextureLowHP;
 }
 
 void cleanup(struct SDL_State &state); // protoip funkcije cleanup
@@ -49,15 +72,24 @@ int main(){
     state.shipTextureFullHP = IMG_LoadTexture(state.renderer, "textures/MeShipFullHP.png");
     state.shipTextureHalfHP = IMG_LoadTexture(state.renderer, "textures/MeShipHalfHP.png");
     state.shipTextureLowHP = IMG_LoadTexture(state.renderer, "textures/MeShipLowHP.png");
+
     state.sandTexture = IMG_LoadTexture(state.renderer, "textures/Minecraft-Sand-Block.jpg");
+
+    state.EnemyshipTextureFullHP = IMG_LoadTexture(state.renderer, "textures/EnemyShipFullHP.png");
+    state.EnemyshipTextureHalfHP = IMG_LoadTexture(state.renderer, "textures/EnemyShipHalfHP.png");
+    state.EnemyshipTextureLowHP = IMG_LoadTexture(state.renderer, "textures/EnemyShipLowHP.png");
 
     MainMenu mainMenu;
     mainMenu.load(state.renderer, "textures/MainMenuTexture.png");
-    bool inMainMenu = true;
+    AppScreen currentScreen = AppScreen::MainMenu;
 
 
     // Create player in center of map
     Player player(MAP_WIDTH / 2 , MAP_HEIGHT / 2);
+    
+    // Enemy position: in sea, at least 100px left from sand area
+    const float sandStartX = MAP_WIDTH - (MAP_WIDTH / 3.0f);
+    Enemy enemy(sandStartX - 150.0f, MAP_HEIGHT * 0.5f);
     
     // Tabela ki preverja če je gumb pritisnjen ali ne + racunanje delta time (cas med 1. framom in 2. framom MOVEMENT OSTANE ENAK HITER NE GLEDENA FPS)
     const bool *keys = SDL_GetKeyboardState(NULL);
@@ -89,14 +121,19 @@ int main(){
                 }
             }
 
-            if (inMainMenu) {
-                if (event.type == SDL_EVENT_KEY_DOWN && !event.key.repeat && event.key.scancode != SDL_SCANCODE_F11) {
-                    inMainMenu = false;
-                }
+            if (currentScreen == AppScreen::MainMenu && event.type == SDL_EVENT_MOUSE_BUTTON_DOWN && event.button.button == SDL_BUTTON_LEFT) {
+                const float mouseX = event.button.x;
+                const float mouseY = event.button.y;
 
-                if (event.type == SDL_EVENT_MOUSE_BUTTON_DOWN) {
-                    inMainMenu = false;
+                if (mainMenu.isStartButtonPressed(mouseX, mouseY, width, height)) {
+                    currentScreen = AppScreen::Game;
+                } else if (mainMenu.isSettingsButtonPressed(mouseX, mouseY, width, height)) {
+                    currentScreen = AppScreen::Settings;
                 }
+            }
+
+            if (currentScreen == AppScreen::Settings && event.type == SDL_EVENT_KEY_DOWN && !event.key.repeat && event.key.scancode == SDL_SCANCODE_ESCAPE) {
+                currentScreen = AppScreen::MainMenu;
             }
         }
         // Koda da zracuna delta time (cas med 1. framom in 2. framom)
@@ -110,10 +147,15 @@ int main(){
         if(keys[SDL_SCANCODE_A])player.moveLeft(dt);
         if(keys[SDL_SCANCODE_D])player.moveRight(dt);
 
-        if (inMainMenu) {
-            SDL_SetRenderDrawColor(state.renderer, 0, 0, 0, 255);
+        if (currentScreen == AppScreen::MainMenu) {
             SDL_RenderClear(state.renderer);
             mainMenu.render(state.renderer, width, height);
+            SDL_RenderPresent(state.renderer);
+            continue; // Nujno rabi bit ker cene se screeni prekrivajo en cez druzga
+        }
+
+        if (currentScreen == AppScreen::Settings) {
+            mainMenu.renderSettings(state.renderer, width, height);
             SDL_RenderPresent(state.renderer);
             continue;
         }
@@ -160,6 +202,10 @@ int main(){
         // Draw the player (ship texture + rotation while moving)
         SDL_RenderTextureRotated(state.renderer,getShipTexture(player.getHP(), state), NULL, &rect, player.getAngle(), &center, SDL_FLIP_NONE);
 
+        // Draw one enemy ship in world space
+        SDL_FRect enemyRect = {enemy.getX() - cameraX, enemy.getY() - cameraY, 50, 50};
+        SDL_RenderTexture(state.renderer, getEnemyShipTexture(enemy.getHP(), state), NULL, &enemyRect);
+
         // prikaz vsega ki smo narisali v pomnilnik
         SDL_RenderPresent(state.renderer);
 
@@ -178,6 +224,9 @@ void cleanup(struct SDL_State &state){
     SDL_DestroyTexture(state.shipTextureHalfHP);
     SDL_DestroyTexture(state.shipTextureLowHP);
     SDL_DestroyTexture(state.sandTexture);
+    SDL_DestroyTexture(state.EnemyshipTextureFullHP);
+    SDL_DestroyTexture(state.EnemyshipTextureHalfHP);
+    SDL_DestroyTexture(state.EnemyshipTextureLowHP);
     SDL_DestroyRenderer(state.renderer);
     SDL_DestroyWindow(state.window);
     SDL_Quit();

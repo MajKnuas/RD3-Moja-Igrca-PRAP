@@ -17,6 +17,16 @@ Player::Player(float startX, float startY) {
     HP = 100;
 }
 
+Enemy::Enemy() {
+
+}
+
+Enemy::Enemy(float startX, float startY) {
+    x = startX;
+    y = startY;
+    HP = 100;
+}
+
 void Player::moveUp(float dt) {
     y -= speed * dt;
     angle = 180;
@@ -46,8 +56,8 @@ float Entity::getHP() { return HP;}
 
 float Player::getAngle() {return angle;}
 
+// Metoda ki naredi da ne mores ven iz mape
 void Player::clampToMap() {
-    // Clamp x position (left and right boundaries)
     if (x < 0) {
         x = 0;
     }
@@ -55,7 +65,6 @@ void Player::clampToMap() {
         x = MAP_WIDTH - PLAYER_SIZE;
     }
     
-    // Clamp y position (top and bottom boundaries)
     if (y < 0) {
         y = 0;
     }
