@@ -229,6 +229,12 @@ void Player::clampToMap() {
     }
 }
 
+void Player::clampToSea() {
+    if (x + PLAYER_SIZE > SAND_START_X) {
+        x = SAND_START_X - PLAYER_SIZE;
+    }
+}
+
 bool Player::isOnSand() const {
     return x + PLAYER_SIZE > SAND_START_X;
 }

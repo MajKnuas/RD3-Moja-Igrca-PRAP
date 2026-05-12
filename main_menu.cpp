@@ -198,9 +198,9 @@ void MainMenu::saveScore(int level, const std::string &username, float time) {
                   return a.time < b.time;
               });
     
-    // Keep only top 10
-    if (leaderboards[level - 1].size() > 10) {
-        leaderboards[level - 1].resize(10);
+    // Keep only top 5
+    if (leaderboards[level - 1].size() > 5) {
+        leaderboards[level - 1].resize(5);
     }
     
     // Save to file

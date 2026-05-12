@@ -32,6 +32,7 @@ class Player:public Entity{
     void moveRight(float dt);
     float getAngle();
     void clampToMap();
+    void clampToSea();
     bool isOnSand() const;
     void takeDamage(float damageAmount);
     void applySlowdown();

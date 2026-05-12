@@ -5,6 +5,7 @@
 #include <vector>
 #include <algorithm>
 #include <string>
+#include <cmath>
 #include <SDL3/SDL.h>
 #include <SDL3_image/SDL_image.h> // Libari za slike 
 #include <SDL3_ttf/SDL_ttf.h>
@@ -38,6 +39,20 @@ struct SDL_State{
     SDL_Texture *EnemyshipTextureFullHP;
     SDL_Texture *EnemyshipTextureHalfHP;
     SDL_Texture *EnemyshipTextureLowHP;
+};
+
+struct Trash {
+    float x, y;
+    float vx, vy; // velocity components
+    float lifetime; // time since creation
+    static constexpr float SIZE = 100.0f;
+    static constexpr float SPEED = 50.0f; // movement speed
+    static constexpr float MOVE_DURATION = 10.0f; // move for 10 seconds
+
+    void clampToMap() {
+        x = std::clamp(x, 0.0f, MAP_WIDTH - SIZE);
+        y = std::clamp(y, 0.0f, MAP_HEIGHT - SIZE);
+    }
 };
 
 SDL_Texture *getShipTexture(float hp, const Player &player, const SDL_State &state) {
@@ -87,6 +102,76 @@ bool isColliding(float x1, float y1, float w1, float h1, float x2, float y2, flo
            y1 + h1 > y2;
 }
 
+bool isPointInRect(float x, float y, const SDL_FRect &rect) {
+    return x >= rect.x && x <= rect.x + rect.w &&
+           y >= rect.y && y <= rect.y + rect.h;
+}
+
+SDL_FRect getSettingsLowButtonRect(int width, int height) {
+    const float buttonWidth = 300.0f;
+    const float buttonHeight = 120.0f;
+    const float gap = 40.0f;
+    const float totalWidth = buttonWidth * 2.0f + gap;
+    const float startX = (static_cast<float>(width) - totalWidth) * 0.5f;
+    const float y = static_cast<float>(height) * 0.48f;
+    return {startX, y, buttonWidth, buttonHeight};
+}
+
+SDL_FRect getSettingsHighButtonRect(int width, int height) {
+    SDL_FRect lowRect = getSettingsLowButtonRect(width, height);
+    const float gap = 40.0f;
+    return {lowRect.x + lowRect.w + gap, lowRect.y, lowRect.w, lowRect.h};
+}
+
+void renderCenteredText(SDL_Renderer *renderer, TTF_Font *font, const char *text, const SDL_FRect &rect, SDL_Color color) {
+    if (!font) {
+        return;
+    }
+
+    int textW = 0;
+    int textH = 0;
+    SDL_Texture *textTexture = createTextTexture(renderer, font, text, color, textW, textH);
+    if (!textTexture) {
+        return;
+    }
+
+    SDL_FRect textRect = {
+        rect.x + (rect.w - static_cast<float>(textW)) * 0.5f,
+        rect.y + (rect.h - static_cast<float>(textH)) * 0.5f,
+        static_cast<float>(textW),
+        static_cast<float>(textH)
+    };
+    SDL_RenderTexture(renderer, textTexture, nullptr, &textRect);
+    SDL_DestroyTexture(textTexture);
+}
+
+void renderSettingsQuality(SDL_Renderer *renderer, TTF_Font *font, int width, int height, bool highGraphics) {
+    SDL_Color white = {255, 255, 255, 255};
+    SDL_Color yellow = {255, 220, 80, 255};
+    SDL_FRect titleRect = {
+        0.0f,
+        static_cast<float>(height) * 0.28f,
+        static_cast<float>(width),
+        80.0f
+    };
+    renderCenteredText(renderer, font, "GRAPHICS", titleRect, white);
+
+    SDL_FRect lowRect = getSettingsLowButtonRect(width, height);
+    SDL_FRect highRect = getSettingsHighButtonRect(width, height);
+
+    SDL_SetRenderDrawColor(renderer, highGraphics ? 30 : 90, highGraphics ? 30 : 90, highGraphics ? 30 : 90, 255);
+    SDL_RenderFillRect(renderer, &lowRect);
+    SDL_SetRenderDrawColor(renderer, highGraphics ? 90 : 255, highGraphics ? 90 : 220, highGraphics ? 90 : 80, 255);
+    SDL_RenderRect(renderer, &lowRect);
+    renderCenteredText(renderer, font, "LOW", lowRect, highGraphics ? white : yellow);
+
+    SDL_SetRenderDrawColor(renderer, highGraphics ? 90 : 30, highGraphics ? 90 : 30, highGraphics ? 90 : 30, 255);
+    SDL_RenderFillRect(renderer, &highRect);
+    SDL_SetRenderDrawColor(renderer, highGraphics ? 255 : 90, highGraphics ? 220 : 90, highGraphics ? 80 : 90, 255);
+    SDL_RenderRect(renderer, &highRect);
+    renderCenteredText(renderer, font, "HIGH", highRect, highGraphics ? yellow : white);
+}
+
 int main(){
 
     struct SDL_State state;
@@ -119,6 +204,8 @@ int main(){
     AppScreen currentScreen = AppScreen::MainMenu;
     bool gameOver = false;
     bool victory = false;
+    bool paused = false;
+    bool highGraphics = true;
     int currentLevel = 0;
     int selectedLevel = 0;
     std::string username;
@@ -130,6 +217,8 @@ int main(){
     SDL_Texture *victoryTexture = nullptr;
     SDL_Texture *timerTexture = nullptr;
     SDL_Texture *retryTexture = nullptr;
+    SDL_Texture *mainMenuButtonTexture = nullptr;
+    SDL_Texture *pausedTexture = nullptr;
     int defeatWidth = 0;
     int defeatHeight = 0;
     int victoryWidth = 0;
@@ -138,11 +227,17 @@ int main(){
     int timerHeight = 0;
     int retryWidth = 0;
     int retryHeight = 0;
+    int mainMenuButtonWidth = 0;
+    int mainMenuButtonHeight = 0;
+    int pausedWidth = 0;
+    int pausedHeight = 0;
     if (gameFont) {
         SDL_Color white = {255, 255, 255, 255};
         defeatTexture = createTextTexture(state.renderer, gameFont, "DEFEAT", white, defeatWidth, defeatHeight);
         victoryTexture = createTextTexture(state.renderer, gameFont, "VICTORY", white, victoryWidth, victoryHeight);
         retryTexture = createTextTexture(state.renderer, gameFont, "RETRY", white, retryWidth, retryHeight);
+        mainMenuButtonTexture = createTextTexture(state.renderer, gameFont, "MAIN MENU", white, mainMenuButtonWidth, mainMenuButtonHeight);
+        pausedTexture = createTextTexture(state.renderer, gameFont, "PAUSED", white, pausedWidth, pausedHeight);
     }
 
     // Create player in center of map
@@ -160,15 +255,16 @@ int main(){
         enemies[i] = Enemy(x, y);
     }
 
-    std::vector<SDL_FRect> trashRects;
+    std::vector<Trash> trashItems;
 
     auto restartCurrentLevel = [&](int level) {
         currentLevel = level;
         activeEnemyCount = level;
         gameOver = false;
         victory = false;
+        paused = false;
         gameTimer = 0.0f;
-        trashRects.clear();
+        trashItems.clear();
         player = Player(MAP_WIDTH / 2, MAP_HEIGHT / 2);
 
         for (int i = 0; i < activeEnemyCount; i++) {
@@ -186,7 +282,7 @@ int main(){
                 enemies[i].setMovementSpeed(140.0f);
                 enemies[i].setTrashSpawnInterval(Enemy::TRASH_SPAWN_INTERVAL);
             } else if (currentLevel == 4) {
-                enemies[i].setMovementSpeed(140.0f * 25.0f);
+                enemies[i].setMovementSpeed(140.0f * 5.0f);
                 enemies[i].setTrashSpawnInterval(Enemy::TRASH_SPAWN_INTERVAL / 20.0f);
                 enemies[i].setDirectionChangeInterval(0.2f);
             } else if (currentLevel == 5) {
@@ -274,12 +370,42 @@ int main(){
                 const float mouseX = event.button.x;
                 const float mouseY = event.button.y;
                 float retryX = (static_cast<float>(width) - static_cast<float>(retryWidth)) * 0.5f;
-                float retryY = (static_cast<float>(height) + static_cast<float>(defeatHeight)) * 0.5f + 40.0f;
+                float retryY = (static_cast<float>(height) + static_cast<float>(defeatHeight)) * 0.5f;
                 SDL_FRect retryRect = { retryX, retryY, static_cast<float>(retryWidth), static_cast<float>(retryHeight) };
 
-                if (mouseX >= retryRect.x && mouseX <= retryRect.x + retryRect.w && mouseY >= retryRect.y && mouseY <= retryRect.y + retryRect.h) {
+                if (isPointInRect(mouseX, mouseY, retryRect)) {
                     restartCurrentLevel(currentLevel);
                 }
+            }
+
+            if (currentScreen == AppScreen::Settings && event.type == SDL_EVENT_MOUSE_BUTTON_DOWN && event.button.button == SDL_BUTTON_LEFT) {
+                const float mouseX = event.button.x;
+                const float mouseY = event.button.y;
+
+                if (isPointInRect(mouseX, mouseY, getSettingsLowButtonRect(width, height))) {
+                    highGraphics = false;
+                } else if (isPointInRect(mouseX, mouseY, getSettingsHighButtonRect(width, height))) {
+                    highGraphics = true;
+                }
+            }
+
+            if (currentScreen == AppScreen::Game && gameOver && victory && event.type == SDL_EVENT_MOUSE_BUTTON_DOWN && event.button.button == SDL_BUTTON_LEFT) {
+                const float mouseX = event.button.x;
+                const float mouseY = event.button.y;
+                float buttonX = (static_cast<float>(width) - static_cast<float>(mainMenuButtonWidth)) * 0.5f;
+                float buttonY = (static_cast<float>(height) + static_cast<float>(victoryHeight)) * 0.5f;
+                SDL_FRect mainMenuRect = {buttonX, buttonY, static_cast<float>(mainMenuButtonWidth), static_cast<float>(mainMenuButtonHeight)};
+
+                if (isPointInRect(mouseX, mouseY, mainMenuRect)) {
+                    paused = false;
+                    gameOver = false;
+                    victory = false;
+                    currentScreen = AppScreen::MainMenu;
+                }
+            }
+
+            if (currentScreen == AppScreen::Game && !gameOver && event.type == SDL_EVENT_KEY_DOWN && !event.key.repeat && event.key.scancode == SDL_SCANCODE_ESCAPE) {
+                paused = !paused;
             }
 
             if (currentScreen == AppScreen::LevelSelect && event.type == SDL_EVENT_KEY_DOWN && !event.key.repeat && event.key.scancode == SDL_SCANCODE_ESCAPE) {
@@ -305,10 +431,12 @@ int main(){
         lastTime = currentTime;
 
         // Update player slowdown effect
-        player.updateSlowdown(dt);
+        if (currentScreen == AppScreen::Game && !gameOver && !paused) {
+            player.updateSlowdown(dt);
+        }
 
         // Movement, preverja gledena zgornjo tabelo ce je gumb drzan
-        if (!gameOver) {
+        if (currentScreen == AppScreen::Game && !gameOver && !paused) {
             if(keys[SDL_SCANCODE_W])player.moveUp(dt);
             if(keys[SDL_SCANCODE_S])player.moveDown(dt);
             if(keys[SDL_SCANCODE_A])player.moveLeft(dt);
@@ -331,6 +459,7 @@ int main(){
 
         if (currentScreen == AppScreen::Settings) {
             mainMenu.renderSettings(state.renderer, width, height);
+            renderSettingsQuality(state.renderer, gameFont, width, height, highGraphics);
             SDL_RenderPresent(state.renderer);
             continue;
         }
@@ -385,32 +514,51 @@ int main(){
 
         // Keep player within map boundaries
         player.clampToMap();
+        if (currentLevel == 4) {
+            player.clampToSea();
+        }
 
         // Update game timer
-        if (!gameOver && currentScreen == AppScreen::Game) {
+        if (!gameOver && !paused && currentScreen == AppScreen::Game) {
             gameTimer += dt;
         }
 
         // Update enemy movement AI on sea and drop trash only while the game is running
-        if (!gameOver) {
+        if (!gameOver && !paused) {
             for (int i = 0; i < activeEnemyCount; i++) {
                 if (enemies[i].isAlive()) {
                     enemies[i].updateAI(dt);
                     if (enemies[i].updateTrashSpawn(dt)) {
-                        trashRects.push_back({enemies[i].getX() + 10.0f, enemies[i].getY() + 10.0f, 100.0f, 100.0f});
+                        // Create trash with random movement direction
+                        float angle = (rand() % 360) * 3.14159f / 180.0f; // random angle in radians
+                        float vx = cos(angle) * Trash::SPEED;
+                        float vy = sin(angle) * Trash::SPEED;
+                        Trash newTrash = {enemies[i].getX() + 10.0f, enemies[i].getY() + 10.0f, vx, vy, 0.0f};
+                        newTrash.clampToMap();
+                        trashItems.push_back(newTrash);
                     }
                 }
             }
 
+            // Update trash movement
+            for (auto &trash : trashItems) {
+                trash.lifetime += dt;
+                if (trash.lifetime < Trash::MOVE_DURATION) {
+                    trash.x += trash.vx * dt;
+                    trash.y += trash.vy * dt;
+                    trash.clampToMap();
+                }
+            }
+
             // Collect trash by touching it; damage is stronger on level 4
-            for (int i = static_cast<int>(trashRects.size()) - 1; i >= 0; --i) {
-                const SDL_FRect &trashRect = trashRects[i];
+            for (int i = static_cast<int>(trashItems.size()) - 1; i >= 0; --i) {
+                const Trash &trash = trashItems[i];
                 if (isColliding(player.getX(), player.getY(), 50, 50,
-                                trashRect.x, trashRect.y, trashRect.w, trashRect.h)) {
+                                trash.x, trash.y, Trash::SIZE, Trash::SIZE)){
                     float damage = (currentLevel == 4) ? 100.0f : 5.0f; // LEVEL 4 INSTAL KILL TRASH
                     player.takeDamage(damage);
                     player.applySlowdown();
-                    trashRects.erase(trashRects.begin() + i);
+                    trashItems.erase(trashItems.begin() + i);
                 }
             }
             
@@ -445,7 +593,7 @@ int main(){
                         }
                     }
                     
-                    if (allEnemiesDead && trashRects.empty()) {
+                    if (allEnemiesDead && trashItems.empty()) {
                         victory = true;
                         gameOver = true;
                         mainMenu.saveScore(currentLevel, username, gameTimer);
@@ -483,29 +631,54 @@ int main(){
         
         SDL_FRect pesek = {rectX - cameraX, rectY - cameraY, rectWidth, MAP_HEIGHT};
 
-        // Risanje texutre obale -pesek
-        SDL_RenderTexture(state.renderer,state.sandTexture, NULL, &pesek);
+        if (highGraphics) {
+            // Risanje texutre obale -pesek
+            SDL_RenderTexture(state.renderer,state.sandTexture, NULL, &pesek);
+        } else {
+            SDL_SetRenderDrawColor(state.renderer, 230, 210, 120, 255);
+            SDL_RenderFillRect(state.renderer, &pesek);
+        }
 
         // Draw player relative to camera position
         SDL_FRect rect = {player.getX() - cameraX, player.getY() - cameraY, 50, 50}; // {x, y, width, height}
         SDL_FPoint center = { rect.w / 2, rect.h / 2 };  // center of rectangle so it can be rotated around
 
-        // Draw the player (ship texture + rotation while moving)
-        SDL_RenderTextureRotated(state.renderer,getShipTexture(player.getHP(), player, state), NULL, &rect, player.getAngle(), &center, SDL_FLIP_NONE);
+        if (highGraphics) {
+            // Draw the player (ship texture + rotation while moving)
+            SDL_RenderTextureRotated(state.renderer,getShipTexture(player.getHP(), player, state), NULL, &rect, player.getAngle(), &center, SDL_FLIP_NONE);
+        } else {
+            SDL_SetRenderDrawColor(state.renderer, 40, 120, 255, 255);
+            if (player.isOnSand()) {
+                SDL_SetRenderDrawColor(state.renderer, 255, 255, 255, 255);
+            } else if (player.getHP() <= 50.0f) {
+                SDL_SetRenderDrawColor(state.renderer, 255, 120, 40, 255);
+            }
+            SDL_RenderFillRect(state.renderer, &rect);
+        }
 
         // Draw enemy ships only if alive
         for (int i = 0; i < activeEnemyCount; i++) {
             if (enemies[i].isAlive()) {
                 SDL_FRect enemyRect = {enemies[i].getX() - cameraX, enemies[i].getY() - cameraY, 50, 50};
-                SDL_FPoint enemyCenter = { enemyRect.w / 2, enemyRect.h / 2 };
-                SDL_RenderTextureRotated(state.renderer, getEnemyShipTexture(enemies[i].getHP(), state), NULL, &enemyRect, enemies[i].getAngle(), &enemyCenter, SDL_FLIP_NONE);
+                if (highGraphics) {
+                    SDL_FPoint enemyCenter = { enemyRect.w / 2, enemyRect.h / 2 };
+                    SDL_RenderTextureRotated(state.renderer, getEnemyShipTexture(enemies[i].getHP(), state), NULL, &enemyRect, enemies[i].getAngle(), &enemyCenter, SDL_FLIP_NONE);
+                } else {
+                    SDL_SetRenderDrawColor(state.renderer, 210, 40, 40, 255);
+                    SDL_RenderFillRect(state.renderer, &enemyRect);
+                }
             }
         }
 
         // Draw trash dropped by enemies
-        for (const SDL_FRect &trashRect : trashRects) {
-            SDL_FRect worldTrash = { trashRect.x - cameraX, trashRect.y - cameraY, trashRect.w, trashRect.h };
-            SDL_RenderTexture(state.renderer, state.trash, NULL, &worldTrash);
+        for (const Trash &trash : trashItems) {
+            SDL_FRect worldTrash = { trash.x - cameraX, trash.y - cameraY, Trash::SIZE, Trash::SIZE };
+            if (highGraphics) {
+                SDL_RenderTexture(state.renderer, state.trash, NULL, &worldTrash);
+            } else {
+                SDL_SetRenderDrawColor(state.renderer, 60, 60, 60, 255);
+                SDL_RenderFillRect(state.renderer, &worldTrash);
+            }
         }
 
         // Draw player HP bar in top-left
@@ -566,11 +739,39 @@ int main(){
         if (victory && victoryTexture) {
             SDL_FRect victoryRect = {
                 (static_cast<float>(width) - static_cast<float>(victoryWidth)) * 0.5f,
-                (static_cast<float>(height) - static_cast<float>(victoryHeight)) * 0.5f,
+                (static_cast<float>(height) - static_cast<float>(victoryHeight)) * 0.5f - 40.0f,
                 static_cast<float>(victoryWidth),
                 static_cast<float>(victoryHeight)
             };
             SDL_RenderTexture(state.renderer, victoryTexture, nullptr, &victoryRect);
+
+            if (mainMenuButtonTexture) {
+                SDL_FRect mainMenuRect = {
+                    (static_cast<float>(width) - static_cast<float>(mainMenuButtonWidth)) * 0.5f,
+                    victoryRect.y + victoryRect.h + 40.0f,
+                    static_cast<float>(mainMenuButtonWidth),
+                    static_cast<float>(mainMenuButtonHeight)
+                };
+                SDL_SetRenderDrawColor(state.renderer, 30, 30, 30, 200);
+                SDL_RenderFillRect(state.renderer, &mainMenuRect);
+                SDL_SetRenderDrawColor(state.renderer, 255, 255, 255, 255);
+                SDL_RenderRect(state.renderer, &mainMenuRect);
+                SDL_RenderTexture(state.renderer, mainMenuButtonTexture, nullptr, &mainMenuRect);
+            }
+        }
+
+        if (paused && pausedTexture) {
+            SDL_FRect overlayRect = {0.0f, 0.0f, static_cast<float>(width), static_cast<float>(height)};
+            SDL_SetRenderDrawColor(state.renderer, 0, 0, 0, 120);
+            SDL_RenderFillRect(state.renderer, &overlayRect);
+
+            SDL_FRect pausedRect = {
+                (static_cast<float>(width) - static_cast<float>(pausedWidth)) * 0.5f,
+                (static_cast<float>(height) - static_cast<float>(pausedHeight)) * 0.5f,
+                static_cast<float>(pausedWidth),
+                static_cast<float>(pausedHeight)
+            };
+            SDL_RenderTexture(state.renderer, pausedTexture, nullptr, &pausedRect);
         }
 
         // prikaz vsega ki smo narisali v pomnilnik
@@ -592,6 +793,16 @@ int main(){
     if (retryTexture) {
         SDL_DestroyTexture(retryTexture);
         retryTexture = nullptr;
+    }
+
+    if (mainMenuButtonTexture) {
+        SDL_DestroyTexture(mainMenuButtonTexture);
+        mainMenuButtonTexture = nullptr;
+    }
+
+    if (pausedTexture) {
+        SDL_DestroyTexture(pausedTexture);
+        pausedTexture = nullptr;
     }
 
     if (timerTexture) {
